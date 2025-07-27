@@ -40,10 +40,8 @@ Render.run(render);
 
   setInterval(() => {
     const currentTime = performance.now();
-
     // Update the engine with a fixed delta time
     Engine.update(engine, physicsInterval);
-
     lastTime = currentTime;
   }, physicsInterval);
 })();
@@ -51,65 +49,82 @@ Render.run(render);
 // ======== 2. AUDIO SETUP 🔈 ========
 const synth = new Synth().toDestination();
 
-// pane
+// A helper function to update a property on all bodies
+const updateAllBodies = (property: string, value: any) => {
+  const allBodies = Composite.allBodies(world);
+  for (const body of allBodies) {
+    // Use Body.set to properly update the body's property
+    Body.set(body, property, value);
+  }
+};
+
 const PARAMS = {
   gravity: 1,
   friction: 0,
   frictionAir: 0,
   restitution: 1,
 };
+
 const pane = new Pane();
+
+// Gravity is an engine-wide property, so this is correct.
 pane.addBinding(PARAMS, "gravity", { min: 0, max: 3 }).on("change", (ev) => {
   engine.gravity.y = ev.value;
 });
+
+// These properties belong to bodies, not the engine.
 pane.addBinding(PARAMS, "friction", { min: 0, max: 1 }).on("change", (ev) => {
-  engine.friction = ev.value;
+  updateAllBodies("friction", ev.value);
 });
+
 pane
   .addBinding(PARAMS, "frictionAir", { min: 0, max: 1 })
   .on("change", (ev) => {
-    engine.frictionAir = ev.value;
+    updateAllBodies("frictionAir", ev.value);
   });
+
 pane
   .addBinding(PARAMS, "restitution", { min: 0, max: 1 })
   .on("change", (ev) => {
-    engine.restitution = ev.value;
+    updateAllBodies("restitution", ev.value);
   });
+
 // ======== 3. OBJECTS AND WALLS ========
 const addBall = (x: number, y: number) => {
   const ball = Bodies.circle(x, y, 6, {
-    restitution: 1,
-    friction: 0,
-    frictionAir: 0,
+    restitution: PARAMS.restitution, // Use initial PARAMS values
+    friction: PARAMS.friction,
+    frictionAir: PARAMS.frictionAir,
     render: { fillStyle: "#E64980" },
     label: "ball",
   });
   Body.setInertia(ball, Infinity);
   Composite.add(world, ball);
 };
+
 addBall(width / 2 - 100, 100);
 addBall(width / 2 + 100, 150);
+
 const wallOptions = {
   isStatic: true,
-  restitution: 1,
-  friction: 0,
-  frictionAir: 0,
+  restitution: PARAMS.restitution, // Use initial PARAMS values
+  friction: PARAMS.friction,
+  frictionAir: PARAMS.frictionAir,
   render: { fillStyle: "#495057" },
 };
+
 Composite.add(world, [
-  Bodies.rectangle(width / 2, height, width, 50, wallOptions),
+  // Bodies.rectangle(width / 2, height, width, 50, wallOptions),
   Bodies.rectangle(width / 2, 0, width, 50, wallOptions),
   Bodies.rectangle(0, height / 2, 50, height, wallOptions),
   Bodies.rectangle(width, height / 2, 50, height, wallOptions),
 ]);
 
 // ======== 4. USER DRAWING LOGIC (IMPROVED UX) ✍️ ========
-
 let startPoint: Vector | null = null;
 let currentMousePosition: Vector | null = null;
 let isDrawing = false;
 
-// Listen for mouse down to start drawing a line
 canvas.addEventListener("mousedown", (event) => {
   const bodies: Body[] = Composite.allBodies(world);
   const clickedBody = bodies.find(
@@ -129,27 +144,20 @@ canvas.addEventListener("mousedown", (event) => {
   }
 });
 
-// --- NEW: Listen for mouse move to update the preview line ---
 canvas.addEventListener("mousemove", (event) => {
   if (isDrawing) {
     currentMousePosition = { x: event.offsetX, y: event.offsetY };
   }
 });
 
-// Listen for mouse up to create the line body
 canvas.addEventListener("mouseup", (event) => {
   if (isDrawing && startPoint && currentMousePosition) {
     const endPoint = currentMousePosition;
     const length = Vector.magnitude(Vector.sub(endPoint, startPoint));
 
-    // If the mouse moved less than 10px, treat it as a click
     if (length < 10) {
-      // <-- ADD THIS BLOCK
       addBall(event.offsetX, event.offsetY);
-    }
-    // If the mouse moved more, treat it as a drag to draw a line
-    else if (length > 10) {
-      // <-- ADD "else if"
+    } else if (length > 10) {
       const center = Vector.div(Vector.add(startPoint, endPoint), 2);
       const angle = Math.atan2(
         endPoint.y - startPoint.y,
@@ -162,12 +170,14 @@ canvas.addEventListener("mouseup", (event) => {
         render: { fillStyle: "#4C6EF5" },
         label: "line",
         customLength: length,
+        // Also apply current friction/restitution params to new lines
+        restitution: PARAMS.restitution,
+        friction: PARAMS.friction,
       });
       Composite.add(world, line);
     }
   }
 
-  // Reset drawing state
   isDrawing = false;
   startPoint = null;
   currentMousePosition = null;
@@ -212,5 +222,16 @@ Events.on(render, "afterRender", () => {
     context.strokeStyle = "rgba(76, 110, 245, 0.7)";
     context.lineWidth = 2;
     context.stroke();
+  }
+});
+
+Events.on(engine, "beforeUpdate", () => {
+  const allBodies = Composite.allBodies(world);
+
+  for (const body of allBodies) {
+    // Check only for balls that are well below the canvas
+    if (body.label === "ball" && body.position.y > height + 200) {
+      Composite.remove(world, body);
+    }
   }
 });
