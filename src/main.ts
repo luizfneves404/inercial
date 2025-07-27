@@ -7,10 +7,14 @@ import {
   Events,
   Vector,
   Body,
+  Query,
   type IBodyDefinition,
 } from "matter-js";
 import { Synth } from "tone";
 import { Pane } from "tweakpane";
+
+const BALL_RADIUS = 5;
+const LINE_WIDTH = 5;
 
 // ======== 1. INITIAL SETUP ========
 const canvas = document.getElementById("app") as HTMLCanvasElement;
@@ -57,6 +61,16 @@ const updateAllBodies = (property: string, value: any) => {
   }
 };
 
+const updateCollisionFilter = () => {
+  // If true, set group to 0 (default behavior).
+  // If false, set group to -1 (balls won't collide with each other).
+  const newGroup = PARAMS.collision ? 0 : -1;
+  const allBalls = Composite.allBodies(world).filter((b) => b.label === "ball");
+  for (const ball of allBalls) {
+    ball.collisionFilter.group = newGroup;
+  }
+};
+
 const PARAMS = {
   gravity: 1,
   friction: 0,
@@ -64,6 +78,7 @@ const PARAMS = {
   restitution: 1,
   mode: "draw", // New: 'draw' or 'spawner'
   spawnInterval: 500, // New: spawn rate in ms
+  collision: false, // New: collision filter
 };
 
 const pane = new Pane();
@@ -109,6 +124,12 @@ pane
     setupSpawningInterval();
   });
 
+pane
+  .addBinding(PARAMS, "collision", { label: "Ball Collision" })
+  .on("change", () => {
+    updateCollisionFilter();
+  });
+
 // ======== 3. SPAWNER LOGIC 💧 ========
 let spawners: { id: number; position: Vector }[] = [];
 let spawnerIdCounter = 0;
@@ -129,12 +150,15 @@ const setupSpawningInterval = () => {
 
 // ======== 4. OBJECTS AND WALLS ========
 const addBall = (x: number, y: number) => {
-  const ball = Bodies.circle(x, y, 6, {
+  const ball = Bodies.circle(x, y, BALL_RADIUS, {
     restitution: PARAMS.restitution,
     friction: PARAMS.friction,
     frictionAir: PARAMS.frictionAir,
     render: { fillStyle: "#E64980" },
     label: "ball",
+    collisionFilter: {
+      group: PARAMS.collision ? 0 : -1,
+    },
   });
   Body.setInertia(ball, Infinity);
   Composite.add(world, ball);
@@ -169,17 +193,33 @@ canvas.addEventListener("contextmenu", (e) => e.preventDefault());
 canvas.addEventListener("mousedown", (event) => {
   const mousePos = { x: event.offsetX, y: event.offsetY };
 
-  // --- Right-click (button 2): Always for removing spawners ---
+  // --- Right-click (button 2): Universal remove for spawners and lines ---
   if (event.button === 2) {
-    // Find if a spawner was clicked (within a 12px radius)
+    // First, try to find and remove a spawner (priority)
+
     const spawnerToRemoveIndex = spawners.findIndex(
       (s) => Vector.magnitude(Vector.sub(s.position, mousePos)) < 12
     );
 
     if (spawnerToRemoveIndex > -1) {
       spawners.splice(spawnerToRemoveIndex, 1);
+
+      return; // Spawner removed, stop here.
     }
-    return; // Stop further processing
+
+    // If no spawner was found, try to find and remove a line
+
+    const allLines = Composite.allBodies(world).filter(
+      (b) => b.label === "line"
+    );
+
+    const clickedLines = Query.point(allLines, mousePos);
+
+    if (clickedLines.length > 0) {
+      Composite.remove(world, clickedLines[0]);
+    }
+
+    return; // Stop further processing for a right-click
   }
 
   // --- Left-click (button 0): Action depends on the current mode ---
@@ -221,7 +261,7 @@ canvas.addEventListener("mouseup", (event) => {
         endPoint.x - startPoint.x
       );
 
-      const line = Bodies.rectangle(center.x, center.y, length, 10, {
+      const line = Bodies.rectangle(center.x, center.y, length, LINE_WIDTH, {
         isStatic: true,
         angle: angle,
         render: { fillStyle: "#4C6EF5" },
@@ -262,7 +302,11 @@ Events.on(engine, "collisionStart", (event) => {
       ballBody = pair.bodyA;
     }
     if (lineBody && ballBody) {
-      const lineLength = lineBody.customLength || 100;
+      const lineLength = lineBody.customLength;
+      if (!lineLength) {
+        console.error("Line length is not set");
+        return;
+      }
       const pitch = 200 + 20000 / lineLength;
       synth.triggerAttackRelease(pitch, "16n");
     }
@@ -279,7 +323,7 @@ Events.on(render, "afterRender", () => {
     context.moveTo(startPoint.x, startPoint.y);
     context.lineTo(currentMousePosition.x, currentMousePosition.y);
     context.strokeStyle = "rgba(76, 110, 245, 0.7)";
-    context.lineWidth = 10;
+    context.lineWidth = LINE_WIDTH;
     context.lineCap = "round";
     context.stroke();
   }
