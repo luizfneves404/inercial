@@ -36,24 +36,23 @@ Render.run(render);
 (function run() {
   const physicsFps = 240;
   const physicsInterval = 1000 / physicsFps;
-  let lastTime = performance.now();
 
   setInterval(() => {
-    const currentTime = performance.now();
     // Update the engine with a fixed delta time
     Engine.update(engine, physicsInterval);
-    lastTime = currentTime;
   }, physicsInterval);
 })();
 
-// ======== 2. AUDIO SETUP 🔈 ========
+// ======== 2. AUDIO & UI SETUP 🔈 ========
 const synth = new Synth().toDestination();
 
-// A helper function to update a property on all bodies
+// A helper function to update a property on all dynamic bodies
 const updateAllBodies = (property: string, value: any) => {
-  const allBodies = Composite.allBodies(world);
+  // We only want to update balls, not static walls or lines
+  const allBodies = Composite.allBodies(world).filter(
+    (b) => b.label === "ball"
+  );
   for (const body of allBodies) {
-    // Use Body.set to properly update the body's property
     Body.set(body, property, value);
   }
 };
@@ -63,16 +62,16 @@ const PARAMS = {
   friction: 0,
   frictionAir: 0,
   restitution: 1,
+  mode: "draw", // New: 'draw' or 'spawner'
+  spawnInterval: 500, // New: spawn rate in ms
 };
 
 const pane = new Pane();
 
-// Gravity is an engine-wide property, so this is correct.
 pane.addBinding(PARAMS, "gravity", { min: 0, max: 3 }).on("change", (ev) => {
   engine.gravity.y = ev.value;
 });
 
-// These properties belong to bodies, not the engine.
 pane.addBinding(PARAMS, "friction", { min: 0, max: 1 }).on("change", (ev) => {
   updateAllBodies("friction", ev.value);
 });
@@ -89,10 +88,49 @@ pane
     updateAllBodies("restitution", ev.value);
   });
 
-// ======== 3. OBJECTS AND WALLS ========
+// New UI controls for spawner mode and rate
+pane.addBinding(PARAMS, "mode", {
+  label: "Mode",
+  options: {
+    "Draw Lines": "draw",
+    "Add Spawners": "spawner",
+  },
+});
+
+pane
+  .addBinding(PARAMS, "spawnInterval", {
+    label: "Spawn Rate (ms)",
+    min: 50,
+    max: 2000,
+    step: 10,
+  })
+  .on("change", () => {
+    // Reset the interval when the rate changes
+    setupSpawningInterval();
+  });
+
+// ======== 3. SPAWNER LOGIC 💧 ========
+let spawners: { id: number; position: Vector }[] = [];
+let spawnerIdCounter = 0;
+let spawnIntervalId: number | null = null;
+
+const setupSpawningInterval = () => {
+  // Clear any existing interval
+  if (spawnIntervalId) {
+    clearInterval(spawnIntervalId);
+  }
+  // Create a new interval that spawns balls from each spawner
+  spawnIntervalId = setInterval(() => {
+    for (const spawner of spawners) {
+      addBall(spawner.position.x, spawner.position.y);
+    }
+  }, PARAMS.spawnInterval);
+};
+
+// ======== 4. OBJECTS AND WALLS ========
 const addBall = (x: number, y: number) => {
   const ball = Bodies.circle(x, y, 6, {
-    restitution: PARAMS.restitution, // Use initial PARAMS values
+    restitution: PARAMS.restitution,
     friction: PARAMS.friction,
     frictionAir: PARAMS.frictionAir,
     render: { fillStyle: "#E64980" },
@@ -102,45 +140,62 @@ const addBall = (x: number, y: number) => {
   Composite.add(world, ball);
 };
 
-addBall(width / 2 - 100, 100);
-addBall(width / 2 + 100, 150);
+// Initial objects
+addBall(width / 2, 100);
 
 const wallOptions = {
   isStatic: true,
-  restitution: PARAMS.restitution, // Use initial PARAMS values
+  restitution: PARAMS.restitution,
   friction: PARAMS.friction,
   frictionAir: PARAMS.frictionAir,
   render: { fillStyle: "#495057" },
 };
 
 Composite.add(world, [
-  // Bodies.rectangle(width / 2, height, width, 50, wallOptions),
+  // SHOULD NOT HAVE GROUND. DO NOT REMOVE THIS COMMENT.
   Bodies.rectangle(width / 2, 0, width, 50, wallOptions),
   Bodies.rectangle(0, height / 2, 50, height, wallOptions),
   Bodies.rectangle(width, height / 2, 50, height, wallOptions),
 ]);
 
-// ======== 4. USER DRAWING LOGIC (IMPROVED UX) ✍️ ========
+// ======== 5. USER INTERACTION LOGIC (DRAW & SPAWN) ✍️ ========
 let startPoint: Vector | null = null;
 let currentMousePosition: Vector | null = null;
 let isDrawing = false;
 
-canvas.addEventListener("mousedown", (event) => {
-  const bodies: Body[] = Composite.allBodies(world);
-  const clickedBody = bodies.find(
-    (body) =>
-      body.label === "ball" &&
-      Vector.magnitude(
-        Vector.sub(body.position, { x: event.offsetX, y: event.offsetY })
-      ) < (body.circleRadius ?? 0)
-  );
+// Prevent right-click menu
+canvas.addEventListener("contextmenu", (e) => e.preventDefault());
 
-  if (clickedBody) {
-    addBall(Math.random() * width, 100);
-  } else {
-    isDrawing = true;
-    startPoint = { x: event.offsetX, y: event.offsetY };
-    currentMousePosition = { x: event.offsetX, y: event.offsetY };
+canvas.addEventListener("mousedown", (event) => {
+  const mousePos = { x: event.offsetX, y: event.offsetY };
+
+  // --- Right-click (button 2): Always for removing spawners ---
+  if (event.button === 2) {
+    // Find if a spawner was clicked (within a 12px radius)
+    const spawnerToRemoveIndex = spawners.findIndex(
+      (s) => Vector.magnitude(Vector.sub(s.position, mousePos)) < 12
+    );
+
+    if (spawnerToRemoveIndex > -1) {
+      spawners.splice(spawnerToRemoveIndex, 1);
+    }
+    return; // Stop further processing
+  }
+
+  // --- Left-click (button 0): Action depends on the current mode ---
+  if (event.button === 0) {
+    if (PARAMS.mode === "spawner") {
+      // In 'spawner' mode, add a spawner
+      spawners.push({
+        id: spawnerIdCounter++,
+        position: mousePos,
+      });
+    } else {
+      // In 'draw' mode, start drawing a line or a ball
+      isDrawing = true;
+      startPoint = mousePos;
+      currentMousePosition = mousePos;
+    }
   }
 });
 
@@ -155,9 +210,11 @@ canvas.addEventListener("mouseup", (event) => {
     const endPoint = currentMousePosition;
     const length = Vector.magnitude(Vector.sub(endPoint, startPoint));
 
+    // If drag is very short, add a ball instead of a line
     if (length < 10) {
       addBall(event.offsetX, event.offsetY);
-    } else if (length > 10) {
+    } else {
+      // Otherwise, add a line
       const center = Vector.div(Vector.add(startPoint, endPoint), 2);
       const angle = Math.atan2(
         endPoint.y - startPoint.y,
@@ -169,8 +226,7 @@ canvas.addEventListener("mouseup", (event) => {
         angle: angle,
         render: { fillStyle: "#4C6EF5" },
         label: "line",
-        customLength: length,
-        // Also apply current friction/restitution params to new lines
+        customLength: length, // For audio pitch calculation
         restitution: PARAMS.restitution,
         friction: PARAMS.friction,
       });
@@ -184,6 +240,7 @@ canvas.addEventListener("mouseup", (event) => {
 });
 
 canvas.addEventListener("mouseleave", () => {
+  // Cancel drawing if mouse leaves canvas
   if (isDrawing) {
     isDrawing = false;
     startPoint = null;
@@ -191,7 +248,7 @@ canvas.addEventListener("mouseleave", () => {
   }
 });
 
-// ======== 5. COLLISION AND SOUND LOGIC 💥 ========
+// ======== 6. COLLISION AND SOUND LOGIC 💥 ========
 Events.on(engine, "collisionStart", (event) => {
   const pairs = event.pairs;
   for (const pair of pairs) {
@@ -212,26 +269,43 @@ Events.on(engine, "collisionStart", (event) => {
   }
 });
 
-// ======== 6. CUSTOM RENDERING FOR PREVIEW LINE ✨ ========
+// ======== 7. CUSTOM RENDERING & GARBAGE COLLECTION ✨ ========
 Events.on(render, "afterRender", () => {
+  const context = render.context;
+
+  // Draw the preview line when user is drawing
   if (isDrawing && startPoint && currentMousePosition) {
-    const context = render.context;
     context.beginPath();
     context.moveTo(startPoint.x, startPoint.y);
     context.lineTo(currentMousePosition.x, currentMousePosition.y);
     context.strokeStyle = "rgba(76, 110, 245, 0.7)";
+    context.lineWidth = 10;
+    context.lineCap = "round";
+    context.stroke();
+  }
+
+  // Draw visual indicators for each spawner
+  for (const spawner of spawners) {
+    context.beginPath();
+    context.arc(spawner.position.x, spawner.position.y, 10, 0, 2 * Math.PI);
+    context.fillStyle = "rgba(76, 110, 245, 0.2)";
+    context.fill();
+    context.strokeStyle = "rgba(76, 110, 245, 0.8)";
     context.lineWidth = 2;
     context.stroke();
   }
 });
 
+// Remove balls that fall off the screen to save performance
 Events.on(engine, "beforeUpdate", () => {
   const allBodies = Composite.allBodies(world);
 
   for (const body of allBodies) {
-    // Check only for balls that are well below the canvas
     if (body.label === "ball" && body.position.y > height + 200) {
       Composite.remove(world, body);
     }
   }
 });
+
+// ======== 8. START THE SPAWNER ========
+setupSpawningInterval();
