@@ -10,7 +10,7 @@ import {
   Query,
   type IBodyDefinition,
 } from "matter-js";
-import { Synth } from "tone";
+import { PolySynth, Synth } from "tone";
 import { Pane } from "tweakpane";
 
 const BALL_RADIUS = 5;
@@ -48,7 +48,10 @@ Render.run(render);
 })();
 
 // ======== 2. AUDIO & UI SETUP 🔈 ========
-const synth = new Synth().toDestination();
+const polySynth = new PolySynth({
+  maxPolyphony: 32,
+  voice: Synth, // Using the basic Synth voice
+}).toDestination();
 
 // A helper function to update a property on all dynamic bodies
 const updateAllBodies = (property: string, value: any) => {
@@ -308,7 +311,7 @@ Events.on(engine, "collisionStart", (event) => {
         return;
       }
       const pitch = 200 + 20000 / lineLength;
-      synth.triggerAttackRelease(pitch, "16n");
+      polySynth.triggerAttackRelease(pitch, "16n");
     }
   }
 });
