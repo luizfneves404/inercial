@@ -131,7 +131,6 @@ const PARAMS = {
   friction: 0,
   frictionAir: 0,
   restitution: 1,
-  mode: "draw", // 'draw', 'spawner', 'song'
   spawnInterval: 500,
   collision: false,
 };
@@ -163,14 +162,6 @@ const songControls = document.getElementById("songControls");
 if (!songControls) {
   throw new Error("Song controls not found");
 }
-
-pane.addBinding(PARAMS, "mode", {
-  label: "Mode",
-  options: {
-    "Draw Lines": "draw",
-    "Add Spawners": "spawner",
-  },
-});
 
 pane
   .addBinding(PARAMS, "spawnInterval", {
@@ -433,10 +424,11 @@ canvas.addEventListener("mousedown", (event) => {
 
   if (event.button === 0) {
     // Left click
-    if (PARAMS.mode === "spawner") {
+    if (event.shiftKey) {
+      // Shift + Click adds a spawner
       spawners.push({ id: spawnerIdCounter++, position: mousePos });
     } else {
-      // Draw mode
+      // Regular click/drag to draw lines or single balls
       isDrawing = true;
       startPoint = mousePos;
       currentMousePosition = mousePos;
@@ -456,8 +448,10 @@ canvas.addEventListener("mouseup", (event) => {
     const length = Vector.magnitude(Vector.sub(endPoint, startPoint));
 
     if (length < 10) {
+      // Short click/drag creates a single ball
       addBall(event.offsetX, event.offsetY);
     } else {
+      // Longer drag creates a line
       const center = Vector.div(Vector.add(startPoint, endPoint), 2);
       const angle = Math.atan2(
         endPoint.y - startPoint.y,
