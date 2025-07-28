@@ -3,6 +3,7 @@
 declare module "matter-js" {
   interface IBodyDefinition {
     customLength?: number;
+    disposable?: boolean;
   }
 }
 

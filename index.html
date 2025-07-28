@@ -1,15 +1,29 @@
-<head>
-  <script src="https://cdn.jsdelivr.net/npm/tweakpane@4.0.3/dist/tweakpane.min.js"></script>
-</head>
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Soundudu</title>
+    <script type="module" src="/src/main.ts"></script>
+  </head>
 
-<body>
-  <div id="app-container">
-    <canvas id="app"></canvas>
-    <div id="instructions">
-      Botao esquerdo: dependendo do modo, arrastar para desenhar linhas e clicar para adicionar bolas, ou clicar para adicionar spawners.
-      <br />
-      Botao direito: remover linhas e spawners.
+  <body>
+    <div id="app-container">
+      <canvas id="app"></canvas>
+      <div class="song-controls" id="songControls">
+        <div><strong>Song Mode</strong></div>
+        <button id="chromaticScale">Chromatic</button>
+        <button id="playDemo">Play Demo Song</button>
+        <button id="stopSong">Stop</button>
+        <button id="clearAll">Clear All</button>
+      </div>
+
+      <div id="instructions">
+        Botao esquerdo: dependendo do modo, arrastar para desenhar linhas e
+        clicar para adicionar bolas, ou clicar para adicionar spawners.
+        <br />
+        Botao direito: remover linhas e spawners.
+      </div>
     </div>
-  </div>
-  <script type="module" src="/src/main.ts"></script>
-</body>
+  </body>
+</html>

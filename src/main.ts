@@ -16,9 +16,72 @@ import { Pane } from "tweakpane";
 const BALL_RADIUS = 5;
 const LINE_WIDTH = 5;
 
-// ======== 1. INITIAL SETUP ========
+// Musical note frequencies (A4 = 440Hz)
+const NOTE_FREQUENCIES = {
+  C4: 261.63,
+  "C#4": 277.18,
+  D4: 293.66,
+  "D#4": 311.13,
+  E4: 329.63,
+  F4: 349.23,
+  "F#4": 369.99,
+  G4: 392.0,
+  "G#4": 415.3,
+  A4: 440.0,
+  "A#4": 466.16,
+  B4: 493.88,
+  C5: 523.25,
+  "C#5": 554.37,
+  D5: 587.33,
+  "D#5": 622.25,
+  E5: 659.25,
+  F5: 698.46,
+  "F#5": 739.99,
+  G5: 783.99,
+  "G#5": 830.61,
+  A5: 880.0,
+  "A#5": 932.33,
+  B5: 987.77,
+};
+
+// Musical scales
+const SCALES = {
+  chromatic: [
+    "C4",
+    "C#4",
+    "D4",
+    "D#4",
+    "E4",
+    "F4",
+    "F#4",
+    "G4",
+    "G#4",
+    "A4",
+    "A#4",
+    "B4",
+    "C5",
+    "C#5",
+    "D5",
+    "D#5",
+    "E5",
+    "F5",
+    "F#5",
+    "G5",
+    "G#5",
+    "A5",
+    "A#5",
+    "B5",
+  ] as const,
+};
+
+// Convert frequency to line length using the existing formula
+const frequencyToLineLength = (freq: number) => 20000 / (freq - 200);
+
+// ======== SETUP ========
 const canvas = document.getElementById("app") as HTMLCanvasElement;
-const { width, height } = canvas.getBoundingClientRect();
+canvas.width = window.innerWidth;
+canvas.height = window.innerHeight;
+const { width, height } = canvas;
 
 const engine = Engine.create();
 const world = engine.world;
@@ -37,53 +100,43 @@ const render = Render.create({
 
 Render.run(render);
 
+// Physics loop
 (function run() {
   const physicsFps = 240;
   const physicsInterval = 1000 / physicsFps;
-
   setInterval(() => {
-    // Update the engine with a fixed delta time
     Engine.update(engine, physicsInterval);
   }, physicsInterval);
 })();
 
-// ======== 2. AUDIO & UI SETUP 🔈 ========
+// ======== AUDIO SETUP ========
 const polySynth = new PolySynth({
-  maxPolyphony: 32,
-  voice: Synth, // Using the basic Synth voice
+  maxPolyphony: 128,
+  voice: Synth,
+  options: {
+    volume: -10,
+    oscillator: { type: "sine" },
+    envelope: {
+      attack: 0.01,
+      decay: 0.3,
+      sustain: 0.1,
+      release: 0.5,
+    },
+  },
 }).toDestination();
 
-// A helper function to update a property on all dynamic bodies
-const updateAllBodies = (property: string, value: any) => {
-  // We only want to update balls, not static walls or lines
-  const allBodies = Composite.allBodies(world).filter(
-    (b) => b.label === "ball"
-  );
-  for (const body of allBodies) {
-    Body.set(body, property, value);
-  }
-};
-
-const updateCollisionFilter = () => {
-  // If true, set group to 0 (default behavior).
-  // If false, set group to -1 (balls won't collide with each other).
-  const newGroup = PARAMS.collision ? 0 : -1;
-  const allBalls = Composite.allBodies(world).filter((b) => b.label === "ball");
-  for (const ball of allBalls) {
-    ball.collisionFilter.group = newGroup;
-  }
-};
-
+// ======== PARAMETERS ========
 const PARAMS = {
   gravity: 1,
   friction: 0,
   frictionAir: 0,
   restitution: 1,
-  mode: "draw", // New: 'draw' or 'spawner'
-  spawnInterval: 500, // New: spawn rate in ms
-  collision: false, // New: collision filter
+  mode: "draw", // 'draw', 'spawner', 'song'
+  spawnInterval: 500,
+  collision: false,
 };
 
+// ======== UI SETUP ========
 const pane = new Pane();
 
 pane.addBinding(PARAMS, "gravity", { min: 0, max: 3 }).on("change", (ev) => {
@@ -106,7 +159,11 @@ pane
     updateAllBodies("restitution", ev.value);
   });
 
-// New UI controls for spawner mode and rate
+const songControls = document.getElementById("songControls");
+if (!songControls) {
+  throw new Error("Song controls not found");
+}
+
 pane.addBinding(PARAMS, "mode", {
   label: "Mode",
   options: {
@@ -123,7 +180,6 @@ pane
     step: 10,
   })
   .on("change", () => {
-    // Reset the interval when the rate changes
     setupSpawningInterval();
   });
 
@@ -133,17 +189,36 @@ pane
     updateCollisionFilter();
   });
 
-// ======== 3. SPAWNER LOGIC 💧 ========
-let spawners: { id: number; position: Vector }[] = [];
+// ======== SPAWNER & SONG LOGIC ========
+let spawners: { id: number; position: { x: number; y: number } }[] = [];
+let musicalSpawners: {
+  id: number;
+  position: { x: number; y: number };
+  note: keyof typeof NOTE_FREQUENCIES;
+}[] = []; // For song mode
 let spawnerIdCounter = 0;
 let spawnIntervalId: number | null = null;
+let songTimeouts: number[] = [];
+
+const updateAllBodies = (property: string, value: number) => {
+  const allBodies = Composite.allBodies(world).filter(
+    (b) => b.label === "ball"
+  );
+  for (const body of allBodies) {
+    Body.set(body, property, value);
+  }
+};
+
+const updateCollisionFilter = () => {
+  const newGroup = PARAMS.collision ? 0 : -1;
+  const allBalls = Composite.allBodies(world).filter((b) => b.label === "ball");
+  for (const ball of allBalls) {
+    ball.collisionFilter.group = newGroup;
+  }
+};
 
 const setupSpawningInterval = () => {
-  // Clear any existing interval
-  if (spawnIntervalId) {
-    clearInterval(spawnIntervalId);
-  }
-  // Create a new interval that spawns balls from each spawner
+  if (spawnIntervalId) clearInterval(spawnIntervalId);
   spawnIntervalId = setInterval(() => {
     for (const spawner of spawners) {
       addBall(spawner.position.x, spawner.position.y);
@@ -151,24 +226,20 @@ const setupSpawningInterval = () => {
   }, PARAMS.spawnInterval);
 };
 
-// ======== 4. OBJECTS AND WALLS ========
-const addBall = (x: number, y: number) => {
+// ======== OBJECTS ========
+const addBall = (x: number, y: number, disposable = false) => {
   const ball = Bodies.circle(x, y, BALL_RADIUS, {
     restitution: PARAMS.restitution,
     friction: PARAMS.friction,
     frictionAir: PARAMS.frictionAir,
-    render: { fillStyle: "#E64980" },
+    render: { fillStyle: disposable ? "#E64980" : "#E64980" },
     label: "ball",
-    collisionFilter: {
-      group: PARAMS.collision ? 0 : -1,
-    },
+    collisionFilter: { group: PARAMS.collision ? 0 : -1 },
+    disposable: disposable,
   });
   Body.setInertia(ball, Infinity);
   Composite.add(world, ball);
 };
-
-// Initial objects
-addBall(width / 2, 100);
 
 const wallOptions = {
   isStatic: true,
@@ -178,63 +249,194 @@ const wallOptions = {
   render: { fillStyle: "#495057" },
 };
 
+// Add walls (no ground) do not change this comment.
 Composite.add(world, [
-  // SHOULD NOT HAVE GROUND. DO NOT REMOVE THIS COMMENT.
   Bodies.rectangle(width / 2, 0, width, 50, wallOptions),
   Bodies.rectangle(0, height / 2, 50, height, wallOptions),
   Bodies.rectangle(width, height / 2, 50, height, wallOptions),
 ]);
 
-// ======== 5. USER INTERACTION LOGIC (DRAW & SPAWN) ✍️ ========
+// ======== MUSICAL FUNCTIONS ========
+const setupScale = (scaleType: keyof typeof SCALES) => {
+  clearAll();
+  const scale = SCALES[scaleType];
+
+  // Define the grid layout for notes to fit the screen width
+  const notesPerRow = 6; // A full chromatic octave fits nicely in one row
+  const verticalSpacing = 220; // Vertical distance between rows of lines
+  const spawnerOffsetY = 150; // Y-offset of the spawner from its line
+  const startY = height * 0.2; // Initial Y position for the first row of lines
+  const horizontalPadding = 200; // Left and right margin
+
+  // Calculate horizontal spacing based on the number of notes per row
+  const horizontalSpacing = (width - horizontalPadding) / (notesPerRow - 1);
+
+  scale.forEach((note: keyof typeof NOTE_FREQUENCIES, i: number) => {
+    // Calculate the row and column for the current note
+    const rowIndex = Math.floor(i / notesPerRow);
+    const colIndex = i % notesPerRow;
+
+    // Calculate the x and y position for the line
+    const x = horizontalPadding / 2 + colIndex * horizontalSpacing;
+    const lineY = startY + rowIndex * verticalSpacing;
+
+    // Safety check to avoid drawing elements off the bottom of the screen
+    if (lineY > height - 50) {
+      console.warn(
+        "Note layout exceeds screen height. Some notes may not be visible."
+      );
+      return; // Skip drawing notes that are off-screen
+    }
+
+    const freq = NOTE_FREQUENCIES[note];
+    const lineLength = frequencyToLineLength(freq);
+
+    // Add the musical line
+    const line = Bodies.rectangle(x, lineY, lineLength, LINE_WIDTH, {
+      isStatic: true,
+      render: { fillStyle: "#4C6EF5" },
+      label: "line",
+      customLength: lineLength,
+      restitution: PARAMS.restitution,
+      friction: PARAMS.friction,
+    });
+    Composite.add(world, line);
+
+    // Add a corresponding spawner above each line
+    musicalSpawners.push({
+      id: spawnerIdCounter++,
+      position: { x: x, y: lineY - spawnerOffsetY },
+      note: note,
+    });
+  });
+};
+
+const playDemo = () => {
+  if (musicalSpawners.length === 0) {
+    setupScale("chromatic");
+  }
+
+  const melody: { note: string; time: number }[] = [
+    // Happy Birthday to you
+    { note: "C4", time: 250 },
+    { note: "C4", time: 750 },
+    { note: "D4", time: 1000 },
+    { note: "C4", time: 1500 },
+    { note: "F4", time: 2000 },
+    { note: "E4", time: 2500 }, // Held for 1000ms
+
+    // Happy Birthday to you
+    { note: "C4", time: 3500 },
+    { note: "C4", time: 4000 },
+    { note: "D4", time: 4500 },
+    { note: "C4", time: 5000 },
+    { note: "G4", time: 5500 },
+    { note: "F4", time: 6000 }, // Held for 1000ms
+
+    // Happy Birthday dear [Name]
+    { note: "C4", time: 7000 },
+    { note: "C4", time: 7500 },
+    { note: "C5", time: 8000 },
+    { note: "A4", time: 8500 },
+    { note: "F4", time: 9000 },
+    { note: "E4", time: 9500 },
+    { note: "D4", time: 10000 },
+
+    // Happy Birthday to you
+    { note: "A#4", time: 10500 },
+    { note: "A#4", time: 11000 },
+    { note: "A4", time: 11500 },
+    { note: "F4", time: 12000 },
+    { note: "G4", time: 12500 },
+    { note: "F4", time: 13000 }, // Held for 1000ms
+  ];
+
+  stopSong(); // Clear any previous song
+
+  melody.forEach(({ note, time }) => {
+    const timeout = setTimeout(() => {
+      const spawner = musicalSpawners.find((s) => s.note === note);
+      if (spawner) {
+        addBall(spawner.position.x, spawner.position.y, true);
+      }
+    }, time);
+    songTimeouts.push(timeout);
+  });
+};
+
+const stopSong = () => {
+  songTimeouts.forEach((timeout) => clearTimeout(timeout));
+  songTimeouts = [];
+};
+
+const clearAll = () => {
+  stopSong();
+  spawners = [];
+  musicalSpawners = [];
+  const allBodies = Composite.allBodies(world);
+  const toRemove = allBodies.filter(
+    (b) => b.label === "ball" || b.label === "line"
+  );
+  Composite.remove(world, toRemove);
+};
+
+// ======== USER INTERACTION ========
+canvas.addEventListener("contextmenu", (e) => e.preventDefault());
+
 let startPoint: Vector | null = null;
 let currentMousePosition: Vector | null = null;
 let isDrawing = false;
 
-// Prevent right-click menu
-canvas.addEventListener("contextmenu", (e) => e.preventDefault());
-
 canvas.addEventListener("mousedown", (event) => {
-  const mousePos = { x: event.offsetX, y: event.offsetY };
+  const mousePos = Vector.create(event.offsetX, event.offsetY);
 
-  // --- Right-click (button 2): Universal remove for spawners and lines ---
   if (event.button === 2) {
-    // First, try to find and remove a spawner (priority)
-
+    // Right click - remove
+    // Check spawners first
     const spawnerToRemoveIndex = spawners.findIndex(
       (s) => Vector.magnitude(Vector.sub(s.position, mousePos)) < 12
     );
-
     if (spawnerToRemoveIndex > -1) {
       spawners.splice(spawnerToRemoveIndex, 1);
-
-      return; // Spawner removed, stop here.
+      return;
     }
 
-    // If no spawner was found, try to find and remove a line
+    // Check musical spawners
+    const musicalSpawnerToRemoveIndex = musicalSpawners.findIndex(
+      (s) => Vector.magnitude(Vector.sub(s.position, mousePos)) < 12
+    );
+    if (musicalSpawnerToRemoveIndex > -1) {
+      musicalSpawners.splice(musicalSpawnerToRemoveIndex, 1);
+      return;
+    }
 
+    // Check lines
     const allLines = Composite.allBodies(world).filter(
       (b) => b.label === "line"
     );
-
     const clickedLines = Query.point(allLines, mousePos);
-
     if (clickedLines.length > 0) {
       Composite.remove(world, clickedLines[0]);
     }
 
-    return; // Stop further processing for a right-click
+    // Check balls
+    const allBalls = Composite.allBodies(world).filter(
+      (b) => b.label === "ball"
+    );
+    const clickedBalls = Query.point(allBalls, mousePos);
+    if (clickedBalls.length > 0) {
+      Composite.remove(world, clickedBalls[0]);
+    }
+
+    return;
   }
 
-  // --- Left-click (button 0): Action depends on the current mode ---
   if (event.button === 0) {
+    // Left click
     if (PARAMS.mode === "spawner") {
-      // In 'spawner' mode, add a spawner
-      spawners.push({
-        id: spawnerIdCounter++,
-        position: mousePos,
-      });
+      spawners.push({ id: spawnerIdCounter++, position: mousePos });
     } else {
-      // In 'draw' mode, start drawing a line or a ball
+      // Draw mode
       isDrawing = true;
       startPoint = mousePos;
       currentMousePosition = mousePos;
@@ -244,7 +446,7 @@ canvas.addEventListener("mousedown", (event) => {
 
 canvas.addEventListener("mousemove", (event) => {
   if (isDrawing) {
-    currentMousePosition = { x: event.offsetX, y: event.offsetY };
+    currentMousePosition = Vector.create(event.offsetX, event.offsetY);
   }
 });
 
@@ -253,11 +455,9 @@ canvas.addEventListener("mouseup", (event) => {
     const endPoint = currentMousePosition;
     const length = Vector.magnitude(Vector.sub(endPoint, startPoint));
 
-    // If drag is very short, add a ball instead of a line
     if (length < 10) {
       addBall(event.offsetX, event.offsetY);
     } else {
-      // Otherwise, add a line
       const center = Vector.div(Vector.add(startPoint, endPoint), 2);
       const angle = Math.atan2(
         endPoint.y - startPoint.y,
@@ -269,7 +469,7 @@ canvas.addEventListener("mouseup", (event) => {
         angle: angle,
         render: { fillStyle: "#4C6EF5" },
         label: "line",
-        customLength: length, // For audio pitch calculation
+        customLength: length,
         restitution: PARAMS.restitution,
         friction: PARAMS.friction,
       });
@@ -283,7 +483,6 @@ canvas.addEventListener("mouseup", (event) => {
 });
 
 canvas.addEventListener("mouseleave", () => {
-  // Cancel drawing if mouse leaves canvas
   if (isDrawing) {
     isDrawing = false;
     startPoint = null;
@@ -291,12 +490,43 @@ canvas.addEventListener("mouseleave", () => {
   }
 });
 
-// ======== 6. COLLISION AND SOUND LOGIC 💥 ========
+const chromaticScaleButton = document.getElementById("chromaticScale");
+const playDemoButton = document.getElementById("playDemo");
+const stopSongButton = document.getElementById("stopSong");
+const clearAllButton = document.getElementById("clearAll");
+
+if (
+  !chromaticScaleButton ||
+  !playDemoButton ||
+  !stopSongButton ||
+  !clearAllButton
+) {
+  throw new Error("Song controls not found");
+}
+
+chromaticScaleButton.addEventListener("click", () => {
+  setupScale("chromatic");
+});
+
+playDemoButton.addEventListener("click", () => {
+  playDemo();
+});
+
+stopSongButton.addEventListener("click", () => {
+  stopSong();
+});
+
+clearAllButton.addEventListener("click", () => {
+  clearAll();
+});
+
+// ======== COLLISION AND SOUND ========
 Events.on(engine, "collisionStart", (event) => {
   const pairs = event.pairs;
   for (const pair of pairs) {
     let lineBody: IBodyDefinition | null = null;
     let ballBody: IBodyDefinition | null = null;
+
     if (pair.bodyA.label === "line" && pair.bodyB.label === "ball") {
       lineBody = pair.bodyA;
       ballBody = pair.bodyB;
@@ -304,23 +534,30 @@ Events.on(engine, "collisionStart", (event) => {
       lineBody = pair.bodyB;
       ballBody = pair.bodyA;
     }
+
     if (lineBody && ballBody) {
+      // Use custom frequency if available, otherwise calculate from length
       const lineLength = lineBody.customLength;
-      if (!lineLength) {
-        console.error("Line length is not set");
-        return;
-      }
+      if (!lineLength) return;
       const pitch = 200 + 20000 / lineLength;
-      polySynth.triggerAttackRelease(pitch, "16n");
+
+      polySynth.triggerAttackRelease(pitch, "8n");
+
+      // Remove disposable balls after collision
+      if (ballBody.disposable) {
+        setTimeout(() => {
+          Composite.remove(world, ballBody);
+        }, 100);
+      }
     }
   }
 });
 
-// ======== 7. CUSTOM RENDERING & GARBAGE COLLECTION ✨ ========
+// ======== RENDERING ========
 Events.on(render, "afterRender", () => {
   const context = render.context;
 
-  // Draw the preview line when user is drawing
+  // Draw preview line
   if (isDrawing && startPoint && currentMousePosition) {
     context.beginPath();
     context.moveTo(startPoint.x, startPoint.y);
@@ -331,7 +568,7 @@ Events.on(render, "afterRender", () => {
     context.stroke();
   }
 
-  // Draw visual indicators for each spawner
+  // Draw regular spawners
   for (const spawner of spawners) {
     context.beginPath();
     context.arc(spawner.position.x, spawner.position.y, 10, 0, 2 * Math.PI);
@@ -341,12 +578,34 @@ Events.on(render, "afterRender", () => {
     context.lineWidth = 2;
     context.stroke();
   }
+
+  // Draw musical spawners
+  for (const spawner of musicalSpawners) {
+    context.beginPath();
+    context.arc(spawner.position.x, spawner.position.y, 12, 0, 2 * Math.PI);
+    context.fillStyle = "rgba(230, 73, 128, 0.3)";
+    context.fill();
+    context.strokeStyle = "rgba(230, 73, 128, 0.8)";
+    context.lineWidth = 2;
+    context.stroke();
+
+    // Draw note label
+    if (spawner.note) {
+      context.fillStyle = "#495057";
+      context.font = "10px sans-serif";
+      context.textAlign = "center";
+      context.fillText(
+        spawner.note,
+        spawner.position.x,
+        spawner.position.y - 20
+      );
+    }
+  }
 });
 
-// Remove balls that fall off the screen to save performance
+// ======== GARBAGE COLLECTION ========
 Events.on(engine, "beforeUpdate", () => {
   const allBodies = Composite.allBodies(world);
-
   for (const body of allBodies) {
     if (body.label === "ball" && body.position.y > height + 200) {
       Composite.remove(world, body);
@@ -354,5 +613,13 @@ Events.on(engine, "beforeUpdate", () => {
   }
 });
 
-// ======== 8. START THE SPAWNER ========
+// ======== INITIALIZATION ========
 setupSpawningInterval();
+
+// Window resize handler
+window.addEventListener("resize", () => {
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
+  render.options.width = window.innerWidth;
+  render.options.height = window.innerHeight;
+});
