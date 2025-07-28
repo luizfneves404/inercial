@@ -138,32 +138,41 @@ const PARAMS = {
 // ======== UI SETUP ========
 const pane = new Pane();
 
-pane.addBinding(PARAMS, "gravity", { min: 0, max: 3 }).on("change", (ev) => {
-  engine.gravity.y = ev.value;
-});
+// --- Physics Controls ---
+const physicsFolder = pane.addFolder({ title: "Physics" });
+physicsFolder
+  .addBinding(PARAMS, "gravity", { min: 0, max: 3 })
+  .on("change", (ev) => {
+    engine.gravity.y = ev.value;
+  });
 
-pane.addBinding(PARAMS, "friction", { min: 0, max: 1 }).on("change", (ev) => {
-  updateAllBodies("friction", ev.value);
-});
+physicsFolder
+  .addBinding(PARAMS, "friction", { min: 0, max: 1 })
+  .on("change", (ev) => {
+    updateAllBodies("friction", ev.value);
+  });
 
-pane
+physicsFolder
   .addBinding(PARAMS, "frictionAir", { min: 0, max: 1 })
   .on("change", (ev) => {
     updateAllBodies("frictionAir", ev.value);
   });
 
-pane
+physicsFolder
   .addBinding(PARAMS, "restitution", { min: 0, max: 1 })
   .on("change", (ev) => {
     updateAllBodies("restitution", ev.value);
   });
 
-const songControls = document.getElementById("songControls");
-if (!songControls) {
-  throw new Error("Song controls not found");
-}
+physicsFolder
+  .addBinding(PARAMS, "collision", { label: "Ball Collision" })
+  .on("change", () => {
+    updateCollisionFilter();
+  });
 
-pane
+// --- Spawner Controls ---
+const spawnerFolder = pane.addFolder({ title: "Spawners" });
+spawnerFolder
   .addBinding(PARAMS, "spawnInterval", {
     label: "Spawn Rate (ms)",
     min: 50,
@@ -174,11 +183,24 @@ pane
     setupSpawningInterval();
   });
 
-pane
-  .addBinding(PARAMS, "collision", { label: "Ball Collision" })
-  .on("change", () => {
-    updateCollisionFilter();
-  });
+// --- Sound Controls ---
+const soundFolder = pane.addFolder({ title: "Sound Controls" });
+
+soundFolder.addButton({ title: "Setup Chromatic Scale" }).on("click", () => {
+  setupScale("chromatic");
+});
+
+soundFolder.addButton({ title: "Play Demo Song" }).on("click", () => {
+  playDemo();
+});
+
+soundFolder.addButton({ title: "Stop Song" }).on("click", () => {
+  stopSong();
+});
+
+soundFolder.addButton({ title: "Clear All" }).on("click", () => {
+  clearAll();
+});
 
 // ======== SPAWNER & SONG LOGIC ========
 let spawners: { id: number; position: { x: number; y: number } }[] = [];
@@ -252,37 +274,31 @@ const setupScale = (scaleType: keyof typeof SCALES) => {
   clearAll();
   const scale = SCALES[scaleType];
 
-  // Define the grid layout for notes to fit the screen width
-  const notesPerRow = 6; // A full chromatic octave fits nicely in one row
-  const verticalSpacing = 220; // Vertical distance between rows of lines
-  const spawnerOffsetY = 150; // Y-offset of the spawner from its line
-  const startY = height * 0.2; // Initial Y position for the first row of lines
-  const horizontalPadding = 200; // Left and right margin
+  const notesPerRow = 6;
+  const verticalSpacing = 220;
+  const spawnerOffsetY = 150;
+  const startY = height * 0.2;
+  const horizontalPadding = 200;
 
-  // Calculate horizontal spacing based on the number of notes per row
   const horizontalSpacing = (width - horizontalPadding) / (notesPerRow - 1);
 
   scale.forEach((note: keyof typeof NOTE_FREQUENCIES, i: number) => {
-    // Calculate the row and column for the current note
     const rowIndex = Math.floor(i / notesPerRow);
     const colIndex = i % notesPerRow;
 
-    // Calculate the x and y position for the line
     const x = horizontalPadding / 2 + colIndex * horizontalSpacing;
     const lineY = startY + rowIndex * verticalSpacing;
 
-    // Safety check to avoid drawing elements off the bottom of the screen
     if (lineY > height - 50) {
       console.warn(
         "Note layout exceeds screen height. Some notes may not be visible."
       );
-      return; // Skip drawing notes that are off-screen
+      return;
     }
 
     const freq = NOTE_FREQUENCIES[note];
     const lineLength = frequencyToLineLength(freq);
 
-    // Add the musical line
     const line = Bodies.rectangle(x, lineY, lineLength, LINE_WIDTH, {
       isStatic: true,
       render: { fillStyle: "#4C6EF5" },
@@ -293,7 +309,6 @@ const setupScale = (scaleType: keyof typeof SCALES) => {
     });
     Composite.add(world, line);
 
-    // Add a corresponding spawner above each line
     musicalSpawners.push({
       id: spawnerIdCounter++,
       position: { x: x, y: lineY - spawnerOffsetY },
@@ -308,23 +323,18 @@ const playDemo = () => {
   }
 
   const melody: { note: string; time: number }[] = [
-    // Happy Birthday to you
     { note: "C4", time: 250 },
     { note: "C4", time: 750 },
     { note: "D4", time: 1000 },
     { note: "C4", time: 1500 },
     { note: "F4", time: 2000 },
-    { note: "E4", time: 2500 }, // Held for 1000ms
-
-    // Happy Birthday to you
+    { note: "E4", time: 2500 },
     { note: "C4", time: 3500 },
     { note: "C4", time: 4000 },
     { note: "D4", time: 4500 },
     { note: "C4", time: 5000 },
     { note: "G4", time: 5500 },
-    { note: "F4", time: 6000 }, // Held for 1000ms
-
-    // Happy Birthday dear [Name]
+    { note: "F4", time: 6000 },
     { note: "C4", time: 7000 },
     { note: "C4", time: 7500 },
     { note: "C5", time: 8000 },
@@ -332,17 +342,15 @@ const playDemo = () => {
     { note: "F4", time: 9000 },
     { note: "E4", time: 9500 },
     { note: "D4", time: 10000 },
-
-    // Happy Birthday to you
     { note: "A#4", time: 10500 },
     { note: "A#4", time: 11000 },
     { note: "A4", time: 11500 },
     { note: "F4", time: 12000 },
     { note: "G4", time: 12500 },
-    { note: "F4", time: 13000 }, // Held for 1000ms
+    { note: "F4", time: 13000 },
   ];
 
-  stopSong(); // Clear any previous song
+  stopSong();
 
   melody.forEach(({ note, time }) => {
     const timeout = setTimeout(() => {
@@ -382,8 +390,6 @@ canvas.addEventListener("mousedown", (event) => {
   const mousePos = Vector.create(event.offsetX, event.offsetY);
 
   if (event.button === 2) {
-    // Right click - remove
-    // Check spawners first
     const spawnerToRemoveIndex = spawners.findIndex(
       (s) => Vector.magnitude(Vector.sub(s.position, mousePos)) < 12
     );
@@ -392,7 +398,6 @@ canvas.addEventListener("mousedown", (event) => {
       return;
     }
 
-    // Check musical spawners
     const musicalSpawnerToRemoveIndex = musicalSpawners.findIndex(
       (s) => Vector.magnitude(Vector.sub(s.position, mousePos)) < 12
     );
@@ -401,7 +406,6 @@ canvas.addEventListener("mousedown", (event) => {
       return;
     }
 
-    // Check lines
     const allLines = Composite.allBodies(world).filter(
       (b) => b.label === "line"
     );
@@ -410,7 +414,6 @@ canvas.addEventListener("mousedown", (event) => {
       Composite.remove(world, clickedLines[0]);
     }
 
-    // Check balls
     const allBalls = Composite.allBodies(world).filter(
       (b) => b.label === "ball"
     );
@@ -423,12 +426,9 @@ canvas.addEventListener("mousedown", (event) => {
   }
 
   if (event.button === 0) {
-    // Left click
     if (event.shiftKey) {
-      // Shift + Click adds a spawner
       spawners.push({ id: spawnerIdCounter++, position: mousePos });
     } else {
-      // Regular click/drag to draw lines or single balls
       isDrawing = true;
       startPoint = mousePos;
       currentMousePosition = mousePos;
@@ -448,10 +448,8 @@ canvas.addEventListener("mouseup", (event) => {
     const length = Vector.magnitude(Vector.sub(endPoint, startPoint));
 
     if (length < 10) {
-      // Short click/drag creates a single ball
       addBall(event.offsetX, event.offsetY);
     } else {
-      // Longer drag creates a line
       const center = Vector.div(Vector.add(startPoint, endPoint), 2);
       const angle = Math.atan2(
         endPoint.y - startPoint.y,
@@ -484,36 +482,6 @@ canvas.addEventListener("mouseleave", () => {
   }
 });
 
-const chromaticScaleButton = document.getElementById("chromaticScale");
-const playDemoButton = document.getElementById("playDemo");
-const stopSongButton = document.getElementById("stopSong");
-const clearAllButton = document.getElementById("clearAll");
-
-if (
-  !chromaticScaleButton ||
-  !playDemoButton ||
-  !stopSongButton ||
-  !clearAllButton
-) {
-  throw new Error("Song controls not found");
-}
-
-chromaticScaleButton.addEventListener("click", () => {
-  setupScale("chromatic");
-});
-
-playDemoButton.addEventListener("click", () => {
-  playDemo();
-});
-
-stopSongButton.addEventListener("click", () => {
-  stopSong();
-});
-
-clearAllButton.addEventListener("click", () => {
-  clearAll();
-});
-
 // ======== COLLISION AND SOUND ========
 Events.on(engine, "collisionStart", (event) => {
   const pairs = event.pairs;
@@ -530,14 +498,12 @@ Events.on(engine, "collisionStart", (event) => {
     }
 
     if (lineBody && ballBody) {
-      // Use custom frequency if available, otherwise calculate from length
       const lineLength = lineBody.customLength;
       if (!lineLength) return;
       const pitch = 200 + 20000 / lineLength;
 
       polySynth.triggerAttackRelease(pitch, "8n");
 
-      // Remove disposable balls after collision
       if (ballBody.disposable) {
         setTimeout(() => {
           Composite.remove(world, ballBody);
@@ -551,7 +517,6 @@ Events.on(engine, "collisionStart", (event) => {
 Events.on(render, "afterRender", () => {
   const context = render.context;
 
-  // Draw preview line
   if (isDrawing && startPoint && currentMousePosition) {
     context.beginPath();
     context.moveTo(startPoint.x, startPoint.y);
@@ -562,7 +527,6 @@ Events.on(render, "afterRender", () => {
     context.stroke();
   }
 
-  // Draw regular spawners
   for (const spawner of spawners) {
     context.beginPath();
     context.arc(spawner.position.x, spawner.position.y, 10, 0, 2 * Math.PI);
@@ -573,7 +537,6 @@ Events.on(render, "afterRender", () => {
     context.stroke();
   }
 
-  // Draw musical spawners
   for (const spawner of musicalSpawners) {
     context.beginPath();
     context.arc(spawner.position.x, spawner.position.y, 12, 0, 2 * Math.PI);
@@ -583,7 +546,6 @@ Events.on(render, "afterRender", () => {
     context.lineWidth = 2;
     context.stroke();
 
-    // Draw note label
     if (spawner.note) {
       context.fillStyle = "#495057";
       context.font = "10px sans-serif";
@@ -610,7 +572,6 @@ Events.on(engine, "beforeUpdate", () => {
 // ======== INITIALIZATION ========
 setupSpawningInterval();
 
-// Window resize handler
 window.addEventListener("resize", () => {
   canvas.width = window.innerWidth;
   canvas.height = window.innerHeight;
