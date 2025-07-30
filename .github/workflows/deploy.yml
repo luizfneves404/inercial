@@ -15,7 +15,7 @@ permissions:
   pages: write
   id-token: write
 
-# Allow only one concurrent deployment
+# Allow only one concurrent deployment, cancelling any in-progress runs
 concurrency:
   group: "pages"
   cancel-in-progress: true
@@ -30,22 +30,30 @@ jobs:
     steps:
       - name: 📥 Checkout code
         uses: actions/checkout@v4
-      - name: 🟢 Set up Node.js
-        uses: actions/setup-node@v4
+
+      # Install Bun instead of Node/npm
+      - name: 🟢 Set up Bun
+        uses: oven-sh/setup-bun@v1
         with:
-          node-version: "20"
-          cache: "npm"
-      - name: 📦 Install dependencies
-        run: npm install
-      - name: 🔨 Build project
-        run: npm run build
+          # Specify a Bun version if needed, otherwise latest is used
+          bun-version: "latest"
+
+      - name: 📦 Install dependencies with Bun
+        # This command will automatically use bun.lockb if it exists
+        run: bun install --frozen-lockfile
+
+      - name: 🔨 Build project with Bun
+        run: bun run build
+
       - name: ⚙️ Setup Pages
         uses: actions/configure-pages@v5
+
       - name: 📤 Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          # Upload entire repository
+          # Upload the build output directory
           path: "./dist"
+
       - name: 🚀 Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
