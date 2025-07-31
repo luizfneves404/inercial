@@ -1,3 +1,5 @@
+import type { Melody } from "./songs";
+
 // Musical note frequencies (A4 = 440Hz)
 export const NOTE_FREQUENCIES = {
   C4: 261.63,
@@ -69,7 +71,9 @@ export const PARAMS = {
   restitution: 1,
   spawnInterval: 500,
   collision: false,
-  lineTemplate: "Custom Length",
+  lineTemplate: "Custom Length" as
+    | keyof typeof NOTE_FREQUENCIES
+    | "Custom Length",
 };
 
 // Helper function

@@ -6,7 +6,10 @@ const canvas = document.getElementById("app") as HTMLCanvasElement;
 canvas.width = window.innerWidth;
 canvas.height = window.innerHeight;
 
-export const engine = Engine.create();
+export const engine = Engine.create({
+  positionIterations: 10,
+  velocityIterations: 10,
+});
 export const world = engine.world;
 engine.gravity.y = PARAMS.gravity;
 

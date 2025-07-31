@@ -1,9 +1,10 @@
 /// <reference types="vite/client" />
+import { NOTE_FREQUENCIES } from "./config";
 
 declare module "matter-js" {
   interface IBodyDefinition {
     customLength?: number;
-    disposable?: boolean;
+    lineTemplate?: keyof typeof NOTE_FREQUENCIES | "Custom Length";
   }
 }
 

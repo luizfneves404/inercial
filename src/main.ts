@@ -22,6 +22,7 @@ import {
   SCALES,
   frequencyToLineLength,
 } from "./config";
+import { type Melody } from "./songs";
 
 // ======== STATE ========
 let spawners: { id: number; position: { x: number; y: number } }[] = [];
@@ -36,6 +37,10 @@ let songTimeouts: number[] = [];
 let startPoint: Vector | null = null;
 let currentMousePosition: Vector | null = null;
 let isDrawing = false;
+
+let isRecording = false;
+let recordingStartTime = 0;
+let recordedMelody: Melody = [];
 
 // ======== CORE LOGIC ========
 const updateAllBodies = (property: string, value: number) => {
@@ -60,15 +65,14 @@ const setupSpawningInterval = () => {
   }, PARAMS.spawnInterval);
 };
 
-const addBall = (x: number, y: number, disposable = false) => {
+const addBall = (x: number, y: number) => {
   const ball = Bodies.circle(x, y, BALL_RADIUS, {
     restitution: PARAMS.restitution,
     friction: PARAMS.friction,
     frictionAir: PARAMS.frictionAir,
-    render: { fillStyle: disposable ? "#E64980" : "#E64980" },
+    render: { fillStyle: "#E64980" },
     label: "ball",
     collisionFilter: { group: PARAMS.collision ? 0 : -1 },
-    disposable: disposable,
   });
   Body.setInertia(ball, Infinity);
   Composite.add(world, ball);
@@ -114,6 +118,7 @@ const setupScale = (scaleType: keyof typeof SCALES) => {
       customLength: lineLength,
       restitution: PARAMS.restitution,
       friction: PARAMS.friction,
+      lineTemplate: note,
     });
     Composite.add(world, line);
     musicalSpawners.push({
@@ -124,43 +129,77 @@ const setupScale = (scaleType: keyof typeof SCALES) => {
   });
 };
 
-const playDemo = () => {
+const playSong = (melody: Melody) => {
+  // Ensure spawners are ready for the song.
   if (musicalSpawners.length === 0) setupScale("chromatic");
-  const melody = [
-    { note: "C4", time: 250 },
-    { note: "C4", time: 750 },
-    { note: "D4", time: 1000 },
-    { note: "C4", time: 1500 },
-    { note: "F4", time: 2000 },
-    { note: "E4", time: 2500 },
-    { note: "C4", time: 3500 },
-    { note: "C4", time: 4000 },
-    { note: "D4", time: 4500 },
-    { note: "C4", time: 5000 },
-    { note: "G4", time: 5500 },
-    { note: "F4", time: 6000 },
-    { note: "C4", time: 7000 },
-    { note: "C4", time: 7500 },
-    { note: "C5", time: 8000 },
-    { note: "A4", time: 8500 },
-    { note: "F4", time: 9000 },
-    { note: "E4", time: 9500 },
-    { note: "D4", time: 10000 },
-    { note: "A#4", time: 10500 },
-    { note: "A#4", time: 11000 },
-    { note: "A4", time: 11500 },
-    { note: "F4", time: 12000 },
-    { note: "G4", time: 12500 },
-    { note: "F4", time: 13000 },
-  ];
+
+  // Stop any previously playing song.
   stopSong();
+
+  // Schedule each note in the melody.
   melody.forEach(({ note, time }) => {
     const timeout = setTimeout(() => {
       const spawner = musicalSpawners.find((s) => s.note === note);
-      if (spawner) addBall(spawner.position.x, spawner.position.y, true);
+      if (spawner) {
+        addBall(spawner.position.x, spawner.position.y);
+      }
     }, time);
     songTimeouts.push(timeout);
   });
+};
+
+const toggleRecording = () => {
+  isRecording = !isRecording;
+  if (isRecording) {
+    // Start recording
+    recordedMelody = [];
+    recordingStartTime = performance.now();
+    console.log("🔴 Recording started...");
+  } else {
+    // Stop recording
+    console.log("✅ Recording finished. Melody is ready for export.");
+  }
+};
+
+const exportRecordedSong = () => {
+  if (recordedMelody.length === 0) {
+    alert("Nothing to export! Record a melody first.");
+    return;
+  }
+
+  // Format the melody to a pretty-printed JSON string
+  const melodyJSON = JSON.stringify(recordedMelody, null, 2);
+
+  // Copy to clipboard
+  navigator.clipboard.writeText(melodyJSON).then(
+    () => {
+      alert("📋 Recorded song copied to clipboard!");
+      console.log("Your recorded song:\n", melodyJSON);
+    },
+    (err) => {
+      console.error("Failed to copy song: ", err);
+      // Fallback for older browsers or if permissions fail
+      console.log("Your recorded song:\n", melodyJSON);
+      alert(
+        "Could not copy to clipboard. Check the browser console for your song."
+      );
+    }
+  );
+};
+
+const findClosestNote = (pitch: number): keyof typeof NOTE_FREQUENCIES => {
+  let closestNote: keyof typeof NOTE_FREQUENCIES = "C4";
+  let smallestDiff = Infinity;
+
+  for (const note in NOTE_FREQUENCIES) {
+    const frequency = NOTE_FREQUENCIES[note as keyof typeof NOTE_FREQUENCIES];
+    const diff = Math.abs(pitch - frequency);
+    if (diff < smallestDiff) {
+      smallestDiff = diff;
+      closestNote = note as keyof typeof NOTE_FREQUENCIES;
+    }
+  }
+  return closestNote;
 };
 
 // ======== UI HANDLERS ========
@@ -172,9 +211,10 @@ setupUI({
   onCollisionChange: updateCollisionFilter,
   onSpawnIntervalChange: setupSpawningInterval,
   setupChromaticScale: () => setupScale("chromatic"),
-  playDemoSong: playDemo,
   stopSong: stopSong,
   clearAll: clearAll,
+  toggleRecording: toggleRecording,
+  copyRecordedSong: exportRecordedSong,
 });
 
 // ======== EVENT LISTENERS ========
@@ -238,7 +278,7 @@ canvas.addEventListener("mouseup", () => {
       let center = Vector.div(Vector.add(startPoint, endPoint), 2);
 
       if (PARAMS.lineTemplate !== "Custom Length") {
-        const note = PARAMS.lineTemplate as keyof typeof NOTE_FREQUENCIES;
+        const note = PARAMS.lineTemplate;
         lineLength = frequencyToLineLength(NOTE_FREQUENCIES[note]);
         const centerOffsetX = (lineLength / 2) * Math.cos(angle);
         const centerOffsetY = (lineLength / 2) * Math.sin(angle);
@@ -261,6 +301,7 @@ canvas.addEventListener("mouseup", () => {
           customLength: lineLength,
           restitution: PARAMS.restitution,
           friction: PARAMS.friction,
+          lineTemplate: PARAMS.lineTemplate,
         }
       );
       Composite.add(world, line);
@@ -297,7 +338,12 @@ Events.on(engine, "collisionStart", (event) => {
       if (!lineLength) return;
       const pitch = 200 + 20000 / lineLength;
       polySynth.triggerAttackRelease(pitch, "8n");
-      if ((ballBody as any).disposable)
+      if (isRecording) {
+        const note = findClosestNote(pitch);
+        const time = Math.round(performance.now() - recordingStartTime);
+        recordedMelody.push({ note, time });
+      }
+      if (lineBody.lineTemplate !== "Custom Length")
         setTimeout(() => Composite.remove(world, ballBody), 100);
     }
   }
@@ -314,7 +360,7 @@ Events.on(render, "afterRender", () => {
   ) {
     let previewEndPoint = currentMousePosition;
     if (PARAMS.lineTemplate !== "Custom Length") {
-      const note = PARAMS.lineTemplate as keyof typeof NOTE_FREQUENCIES;
+      const note = PARAMS.lineTemplate;
       const length = frequencyToLineLength(NOTE_FREQUENCIES[note]);
       const angle = Math.atan2(
         currentMousePosition.y - startPoint.y,
