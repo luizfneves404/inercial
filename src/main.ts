@@ -24,6 +24,7 @@ import {
   type Melody,
   type PlayableNote,
   frequencyToLineLength,
+  lineLengthToFrequency,
 } from "./config";
 
 // ======== STATE ========
@@ -97,9 +98,7 @@ const clearAll = () => {
 
 const setupScale = (notes: readonly (keyof typeof NOTE_FREQUENCIES)[]) => {
   clearAll();
-
   const noteCount = notes.length;
-
   // Dynamic layout calculation based on note count
   const getOptimalLayout = (count: number): number => {
     if (count <= 6) {
@@ -112,10 +111,8 @@ const setupScale = (notes: readonly (keyof typeof NOTE_FREQUENCIES)[]) => {
       return 6;
     }
   };
-
   const notesPerRow = getOptimalLayout(noteCount);
   const actualRows = Math.ceil(noteCount / notesPerRow);
-
   // Dynamic spacing based on screen size and note count
   const minHorizontalPadding = 100;
   const maxHorizontalPadding = 300;
@@ -123,34 +120,28 @@ const setupScale = (notes: readonly (keyof typeof NOTE_FREQUENCIES)[]) => {
     maxHorizontalPadding,
     Math.max(minHorizontalPadding, render.options.width! * 0.1)
   );
-
   // Calculate horizontal spacing to use available width efficiently
   const availableWidth = render.options.width! - horizontalPadding;
   const horizontalSpacing =
     notesPerRow > 1 ? availableWidth / (notesPerRow - 1) : 0;
-
   // Dynamic vertical spacing based on available height and number of rows
   const availableHeight = render.options.height! * 0.6; // Use 60% of screen height
   const baseVerticalSpacing =
     actualRows > 1 ? availableHeight / (actualRows - 1) : 0;
   const verticalSpacing = Math.max(180, Math.min(250, baseVerticalSpacing));
-
   // Center the entire grid vertically
   const totalGridHeight = (actualRows - 1) * verticalSpacing;
   const startY = (render.options.height! - totalGridHeight) / 2;
-
   const spawnerOffsetY = 150;
 
   notes.forEach((note: keyof typeof NOTE_FREQUENCIES, i: number) => {
     const rowIndex = Math.floor(i / notesPerRow);
     const colIndex = i % notesPerRow;
-
     // For the last row, center any remaining notes if it's not full
     const notesInThisRow =
       rowIndex === actualRows - 1
         ? noteCount - rowIndex * notesPerRow
         : notesPerRow;
-
     let x: number;
     if (notesInThisRow < notesPerRow && actualRows > 1) {
       // Center the notes in the last row if it's not full
@@ -163,8 +154,8 @@ const setupScale = (notes: readonly (keyof typeof NOTE_FREQUENCIES)[]) => {
     }
 
     const lineY = startY + rowIndex * verticalSpacing;
-    const lineLength = frequencyToLineLength(NOTE_FREQUENCIES[note]);
 
+    const lineLength = frequencyToLineLength(NOTE_FREQUENCIES[note]);
     const line = Bodies.rectangle(x, lineY, lineLength, LINE_WIDTH, {
       isStatic: true,
       render: { fillStyle: "#4C6EF5" },
@@ -174,9 +165,7 @@ const setupScale = (notes: readonly (keyof typeof NOTE_FREQUENCIES)[]) => {
       friction: PARAMS.friction,
       lineTemplate: note,
     });
-
     Composite.add(world, line);
-
     musicalSpawners.push({
       id: spawnerIdCounter++,
       position: { x: x, y: lineY - spawnerOffsetY },
@@ -443,7 +432,9 @@ Events.on(engine, "collisionStart", (event) => {
     if (lineBody && ballBody) {
       const lineLength = lineBody.customLength;
       if (!lineLength) return;
-      const pitch = 200 + 20000 / lineLength;
+
+      const pitch = lineLengthToFrequency(lineLength);
+
       polySynth.triggerAttackRelease(pitch, "8n");
       if (isRecording) {
         const note = findClosestNote(pitch);
