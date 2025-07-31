@@ -20,9 +20,11 @@ import {
   NOTE_FREQUENCIES,
   PARAMS,
   SCALES,
+  DEMO_SONGS,
+  type Melody,
+  type PlayableNote,
   frequencyToLineLength,
 } from "./config";
-import { type Melody } from "./songs";
 
 // ======== STATE ========
 let spawners: { id: number; position: { x: number; y: number } }[] = [];
@@ -93,21 +95,73 @@ const clearAll = () => {
   Composite.remove(world, toRemove);
 };
 
-const setupScale = (scaleType: keyof typeof SCALES) => {
+const setupScale = (notes: readonly (keyof typeof NOTE_FREQUENCIES)[]) => {
   clearAll();
-  const scale = SCALES[scaleType];
-  const notesPerRow = 6;
-  const verticalSpacing = 220;
-  const spawnerOffsetY = 150;
-  const startY = render.options.height! * 0.2;
-  const horizontalPadding = 200;
-  const horizontalSpacing =
-    (render.options.width! - horizontalPadding) / (notesPerRow - 1);
 
-  scale.forEach((note: keyof typeof NOTE_FREQUENCIES, i: number) => {
+  const noteCount = notes.length;
+
+  // Dynamic layout calculation based on note count
+  const getOptimalLayout = (count: number): number => {
+    if (count <= 6) {
+      return count;
+    } else if (count <= 12) {
+      return Math.ceil(count / 2);
+    } else if (count <= 18) {
+      return 6;
+    } else {
+      return 6;
+    }
+  };
+
+  const notesPerRow = getOptimalLayout(noteCount);
+  const actualRows = Math.ceil(noteCount / notesPerRow);
+
+  // Dynamic spacing based on screen size and note count
+  const minHorizontalPadding = 100;
+  const maxHorizontalPadding = 300;
+  const horizontalPadding = Math.min(
+    maxHorizontalPadding,
+    Math.max(minHorizontalPadding, render.options.width! * 0.1)
+  );
+
+  // Calculate horizontal spacing to use available width efficiently
+  const availableWidth = render.options.width! - horizontalPadding;
+  const horizontalSpacing =
+    notesPerRow > 1 ? availableWidth / (notesPerRow - 1) : 0;
+
+  // Dynamic vertical spacing based on available height and number of rows
+  const availableHeight = render.options.height! * 0.6; // Use 60% of screen height
+  const baseVerticalSpacing =
+    actualRows > 1 ? availableHeight / (actualRows - 1) : 0;
+  const verticalSpacing = Math.max(180, Math.min(250, baseVerticalSpacing));
+
+  // Center the entire grid vertically
+  const totalGridHeight = (actualRows - 1) * verticalSpacing;
+  const startY = (render.options.height! - totalGridHeight) / 2;
+
+  const spawnerOffsetY = 150;
+
+  notes.forEach((note: keyof typeof NOTE_FREQUENCIES, i: number) => {
     const rowIndex = Math.floor(i / notesPerRow);
     const colIndex = i % notesPerRow;
-    const x = horizontalPadding / 2 + colIndex * horizontalSpacing;
+
+    // For the last row, center any remaining notes if it's not full
+    const notesInThisRow =
+      rowIndex === actualRows - 1
+        ? noteCount - rowIndex * notesPerRow
+        : notesPerRow;
+
+    let x: number;
+    if (notesInThisRow < notesPerRow && actualRows > 1) {
+      // Center the notes in the last row if it's not full
+      const rowWidth = (notesInThisRow - 1) * horizontalSpacing;
+      const rowStartX = (render.options.width! - rowWidth) / 2;
+      x = rowStartX + colIndex * horizontalSpacing;
+    } else {
+      // Use the standard positioning
+      x = horizontalPadding / 2 + colIndex * horizontalSpacing;
+    }
+
     const lineY = startY + rowIndex * verticalSpacing;
     const lineLength = frequencyToLineLength(NOTE_FREQUENCIES[note]);
 
@@ -120,7 +174,9 @@ const setupScale = (scaleType: keyof typeof SCALES) => {
       friction: PARAMS.friction,
       lineTemplate: note,
     });
+
     Composite.add(world, line);
+
     musicalSpawners.push({
       id: spawnerIdCounter++,
       position: { x: x, y: lineY - spawnerOffsetY },
@@ -128,10 +184,12 @@ const setupScale = (scaleType: keyof typeof SCALES) => {
     });
   });
 };
-
-const playSong = (melody: Melody) => {
-  // Ensure spawners are ready for the song.
-  if (musicalSpawners.length === 0) setupScale("chromatic");
+const playSong = (melody: ReadonlyArray<PlayableNote>) => {
+  // make a custom scale that has only the notes in the melody
+  const customScale = Array.from(new Set(melody.map(({ note }) => note))).sort(
+    (a, b) => NOTE_FREQUENCIES[a] - NOTE_FREQUENCIES[b]
+  );
+  setupScale(customScale);
 
   // Stop any previously playing song.
   stopSong();
@@ -161,7 +219,7 @@ const toggleRecording = () => {
   }
 };
 
-const exportRecordedSong = () => {
+const copyRecordedSong = () => {
   if (recordedMelody.length === 0) {
     alert("Nothing to export! Record a melody first.");
     return;
@@ -202,6 +260,37 @@ const findClosestNote = (pitch: number): keyof typeof NOTE_FREQUENCIES => {
   return closestNote;
 };
 
+const handlePasteAndPlay = async () => {
+  try {
+    // Read the text content from the user's clipboard
+    const text = await navigator.clipboard.readText();
+    if (!text) {
+      alert("Copie uma música primeiro.");
+      return;
+    }
+
+    // Parse the text as a JSON object
+    const melody: Melody = JSON.parse(text);
+
+    // Basic validation to ensure it's a valid song format
+    if (
+      !Array.isArray(melody) ||
+      melody.length === 0 ||
+      !melody.every((item) => "note" in item && "time" in item)
+    ) {
+      throw new Error("Invalid or empty song format.");
+    }
+
+    // If valid, play the song
+    playSong(melody);
+  } catch (error) {
+    console.error("Failed to paste or play song:", error);
+    alert(
+      "Não deu certo. Verifique se você copiou uma música válida em formato JSON."
+    );
+  }
+};
+
 // ======== UI HANDLERS ========
 setupUI({
   onGravityChange: (value) => (engine.gravity.y = value),
@@ -210,11 +299,14 @@ setupUI({
   onRestitutionChange: (value) => updateAllBodies("restitution", value),
   onCollisionChange: updateCollisionFilter,
   onSpawnIntervalChange: setupSpawningInterval,
-  setupChromaticScale: () => setupScale("chromatic"),
+  setupScale: (scaleType: keyof typeof SCALES) => setupScale(SCALES[scaleType]),
   stopSong: stopSong,
   clearAll: clearAll,
   toggleRecording: toggleRecording,
-  copyRecordedSong: exportRecordedSong,
+  copyRecordedSong: copyRecordedSong,
+  onPasteAndPlay: handlePasteAndPlay,
+  onPlayDemoSong: (songName: keyof typeof DEMO_SONGS) =>
+    playSong(DEMO_SONGS[songName]),
 });
 
 // ======== EVENT LISTENERS ========
@@ -225,6 +317,7 @@ canvas.addEventListener("mousedown", (event) => {
   const mousePos = Vector.create(event.offsetX, event.offsetY);
   if (event.button === 2) {
     // Right click for deleting
+    // Check for spawners first
     const spawnerToRemoveIndex = spawners.findIndex(
       (s) => Vector.magnitude(Vector.sub(s.position, mousePos)) < 12
     );
@@ -232,6 +325,7 @@ canvas.addEventListener("mousedown", (event) => {
       spawners.splice(spawnerToRemoveIndex, 1);
       return;
     }
+    // Check for musical spawners
     const musicalSpawnerToRemoveIndex = musicalSpawners.findIndex(
       (s) => Vector.magnitude(Vector.sub(s.position, mousePos)) < 12
     );
@@ -239,6 +333,16 @@ canvas.addEventListener("mousedown", (event) => {
       musicalSpawners.splice(musicalSpawnerToRemoveIndex, 1);
       return;
     }
+    // Check for balls
+    const clickedBalls = Query.point(
+      Composite.allBodies(world).filter((b) => b.label === "ball"),
+      mousePos
+    );
+    if (clickedBalls.length > 0) {
+      Composite.remove(world, clickedBalls[0]);
+      return;
+    }
+    // Check for lines
     const clickedLines = Query.point(
       Composite.allBodies(world).filter((b) => b.label === "line"),
       mousePos
@@ -248,12 +352,17 @@ canvas.addEventListener("mousedown", (event) => {
   }
   if (event.button === 0) {
     // Left click
-    if (event.shiftKey) {
+    if (event.ctrlKey || event.metaKey) {
+      // Ctrl+Click (or Cmd+Click on Mac) to add spawners
       spawners.push({ id: spawnerIdCounter++, position: mousePos });
-    } else {
+    } else if (event.shiftKey) {
+      // Shift+Click to start drawing lines
       isDrawing = true;
       startPoint = mousePos;
       currentMousePosition = mousePos;
+    } else {
+      // Regular left click to add balls
+      addBall(mousePos.x, mousePos.y);
     }
   }
 });
@@ -267,9 +376,7 @@ canvas.addEventListener("mouseup", () => {
   if (isDrawing && startPoint && currentMousePosition) {
     const endPoint = currentMousePosition;
     const length = Vector.magnitude(Vector.sub(endPoint, startPoint));
-    if (length < MIN_LINE_LENGTH) {
-      addBall(startPoint.x, startPoint.y);
-    } else {
+    if (length >= MIN_LINE_LENGTH) {
       const angle = Math.atan2(
         endPoint.y - startPoint.y,
         endPoint.x - startPoint.x

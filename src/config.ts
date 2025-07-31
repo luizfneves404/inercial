@@ -1,5 +1,3 @@
-import type { Melody } from "./songs";
-
 // Musical note frequencies (A4 = 440Hz)
 export const NOTE_FREQUENCIES = {
   C4: 261.63,
@@ -30,7 +28,24 @@ export const NOTE_FREQUENCIES = {
 
 // Musical scales
 export const SCALES = {
+  // A 1-octave chromatic scale starting at C4
   chromatic: [
+    "C4",
+    "C#4",
+    "D4",
+    "D#4",
+    "E4",
+    "F4",
+    "F#4",
+    "G4",
+    "G#4",
+    "A4",
+    "A#4",
+    "B4",
+    "C5",
+  ] as const,
+  // A 2-octave chromatic scale starting at C4
+  bigChromatic: [
     "C4",
     "C#4",
     "D4",
@@ -56,12 +71,73 @@ export const SCALES = {
     "A#5",
     "B5",
   ] as const,
+
+  major: ["C4", "D4", "E4", "F4", "G4", "A4", "B4", "C5"] as const,
+  minor: ["C4", "D4", "D#4", "F4", "G4", "G#4", "A#4", "C5"] as const,
+  pentatonic: ["C4", "D4", "E4", "G4", "A4", "C5"] as const,
+  blues: ["C4", "D#4", "F4", "F#4", "G4", "A#4", "C5"] as const,
+  harmonicMinor: ["C4", "D4", "D#4", "F4", "G4", "G#4", "B4", "C5"] as const,
+  melodicMinor: ["C4", "D4", "D#4", "F4", "G4", "A4", "B4", "C5"] as const,
+  ionian: ["C4", "D4", "E4", "F4", "G4", "A4", "B4", "C5"] as const,
 };
 
 // App constants
 export const BALL_RADIUS = 5;
 export const LINE_WIDTH = 5;
 export const MIN_LINE_LENGTH = 10;
+
+export type PlayableNote = {
+  readonly note: keyof typeof NOTE_FREQUENCIES;
+  readonly time: number; // in milliseconds
+};
+
+export type Melody = PlayableNote[];
+
+export const DEMO_SONGS = {
+  "Parabéns pra você": [
+    { note: "C4", time: 250 },
+    { note: "C4", time: 750 },
+    { note: "D4", time: 1000 },
+    { note: "C4", time: 1500 },
+    { note: "F4", time: 2000 },
+    { note: "E4", time: 2500 },
+    { note: "C4", time: 3500 },
+    { note: "C4", time: 4000 },
+    { note: "D4", time: 4500 },
+    { note: "C4", time: 5000 },
+    { note: "G4", time: 5500 },
+    { note: "F4", time: 6000 },
+    { note: "C4", time: 7000 },
+    { note: "C4", time: 7500 },
+    { note: "C5", time: 8000 },
+    { note: "A4", time: 8500 },
+    { note: "F4", time: 9000 },
+    { note: "E4", time: 9500 },
+    { note: "D4", time: 10000 },
+    { note: "A#4", time: 10500 },
+    { note: "A#4", time: 11000 },
+    { note: "A4", time: 11500 },
+    { note: "F4", time: 12000 },
+    { note: "G4", time: 12500 },
+    { note: "F4", time: 13000 },
+  ],
+  "Brilha, brilha, estrelinha": [
+    { note: "C4", time: 0 },
+    { note: "C4", time: 500 },
+    { note: "G4", time: 1000 },
+    { note: "G4", time: 1500 },
+    { note: "A4", time: 2000 },
+    { note: "A4", time: 2500 },
+    { note: "G4", time: 3000 },
+    { note: "F4", time: 4000 },
+    { note: "F4", time: 4500 },
+    { note: "E4", time: 5000 },
+    { note: "E4", time: 5500 },
+    { note: "D4", time: 6000 },
+    { note: "D4", time: 6500 },
+    { note: "C4", time: 7000 },
+  ],
+} as const;
 
 // Tweakpane parameters
 export const PARAMS = {
@@ -74,6 +150,8 @@ export const PARAMS = {
   lineTemplate: "Custom Length" as
     | keyof typeof NOTE_FREQUENCIES
     | "Custom Length",
+  selectedSong: Object.keys(DEMO_SONGS)[0] as keyof typeof DEMO_SONGS,
+  scaleType: "chromatic" as keyof typeof SCALES,
 };
 
 // Helper function

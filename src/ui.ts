@@ -1,7 +1,6 @@
 // src/ui.ts
-
 import { Pane } from "tweakpane";
-import { PARAMS, SCALES } from "./config";
+import { PARAMS, SCALES, DEMO_SONGS } from "./config";
 
 // Define a type for the handlers that the UI will call
 interface UIHandlers {
@@ -11,11 +10,13 @@ interface UIHandlers {
   onRestitutionChange: (value: number) => void;
   onCollisionChange: () => void;
   onSpawnIntervalChange: () => void;
-  setupChromaticScale: () => void;
+  setupScale: (scaleType: keyof typeof SCALES) => void;
   stopSong: () => void;
   clearAll: () => void;
   toggleRecording: () => void;
   copyRecordedSong: () => void;
+  onPasteAndPlay: () => void;
+  onPlayDemoSong: (songName: keyof typeof DEMO_SONGS) => void;
 }
 
 export const setupUI = (handlers: UIHandlers) => {
@@ -68,9 +69,16 @@ export const setupUI = (handlers: UIHandlers) => {
 
   const soundFolder = pane.addFolder({ title: "Som" });
 
+  const scaleOptions = Object.fromEntries(
+    Object.entries(SCALES).map(([key]) => [key, key])
+  );
+  soundFolder.addBinding(PARAMS, "scaleType", {
+    label: "Escala musical",
+    options: scaleOptions,
+  });
   soundFolder
-    .addButton({ title: "Configurar Escala Cromática" })
-    .on("click", handlers.setupChromaticScale);
+    .addButton({ title: "Configurar Escala" })
+    .on("click", () => handlers.setupScale(PARAMS.scaleType));
 
   soundFolder
     .addButton({ title: "Parar Música" })
@@ -79,8 +87,22 @@ export const setupUI = (handlers: UIHandlers) => {
     .addButton({ title: "Limpar Tudo" })
     .on("click", handlers.clearAll);
 
-  const recordingFolder = pane.addFolder({ title: "Gravação" });
+  const demoSongsOptions = Object.fromEntries(
+    Object.entries(DEMO_SONGS).map(([key]) => [key, key])
+  );
 
+  soundFolder.addBinding(PARAMS, "selectedSong", {
+    label: "Música Demo",
+    options: demoSongsOptions,
+  });
+
+  soundFolder
+    .addButton({ title: "Tocar Música Selecionada 🎵" })
+    .on("click", () => {
+      handlers.onPlayDemoSong(PARAMS.selectedSong);
+    });
+
+  const recordingFolder = pane.addFolder({ title: "Gravação" });
   const startStopButton = recordingFolder
     .addButton({ title: "Iniciar Gravação" })
     .on("click", () => {
@@ -94,6 +116,10 @@ export const setupUI = (handlers: UIHandlers) => {
   recordingFolder
     .addButton({ title: "Copiar Música Gravada" })
     .on("click", handlers.copyRecordedSong);
+
+  recordingFolder
+    .addButton({ title: "Colar e Tocar Música" })
+    .on("click", handlers.onPasteAndPlay);
 
   return pane;
 };
