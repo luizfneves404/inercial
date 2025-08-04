@@ -20,6 +20,14 @@ export default defineConfig({
         display: "standalone", // Makes the app feel like a native app
         scope: "/inercial/", // <-- Must match the 'base' option
         start_url: "/inercial/", // <-- Must match the 'base' option
+        icons: [
+          {
+            src: "icon-512x512.png", // Must match the file name in `public`
+            sizes: "512x512",
+            type: "image/png",
+            purpose: "any maskable",
+          },
+        ],
       },
     }),
   ],
